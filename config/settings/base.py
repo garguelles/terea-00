@@ -25,6 +25,9 @@ INSTALLED_APPS = [
     "apps.reporting.apps.ReportingConfig",
 ]
 
+AUTH_USER_MODEL = "users.User"
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
