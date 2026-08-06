@@ -100,6 +100,12 @@ MAILERS = {
 }
 
 REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.BasicAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "apps.users.api.permissions.IsActiveAdminRole",
+    ],
     "DEFAULT_PAGINATION_CLASS": "common.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
 }

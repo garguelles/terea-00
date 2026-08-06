@@ -17,7 +17,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock ./
-RUN uv python install 3.15
+RUN uv python install 3.14
 RUN uv sync --locked --no-dev --no-install-project
 
 COPY . .
