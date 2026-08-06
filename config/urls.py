@@ -9,5 +9,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/", include("apps.users.api.urls")),
     path("api/v1/", include("apps.rides.api.urls")),
-    path("api/v1/reports/", include("apps.reporting.api.urls")),
+    path("api/v1/", include("apps.reporting.api.urls")),
 ]
