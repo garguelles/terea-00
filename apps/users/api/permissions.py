@@ -6,7 +6,11 @@ from apps.users.models import User
 
 
 class IsActiveAdminRole(BasePermission):
-    """Allow API access only to active users with the application admin role."""
+    """Allow API access only to active users with the application admin role.
+
+    DRF's IsAdminUser checks is_staff, which controls Django admin-site access
+    and is intentionally independent from this application's role field.
+    """
 
     def has_permission(self, request, view):
         user = request.user
