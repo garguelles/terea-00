@@ -1,0 +1,9 @@
+[project]
+name = "terea-00"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.15"
+dependencies = [
+    "django>=6.1",
+]
