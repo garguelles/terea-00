@@ -25,6 +25,10 @@ The available settings modules are:
 - `config.settings.test` for automated tests.
 - `config.settings.production` for ASGI and WSGI deployments.
 
+Production email uses SMTP. Configure the `DJANGO_DEFAULT_FROM_EMAIL` and
+`DJANGO_EMAIL_*` variables documented in `.env.example` before starting an ASGI
+or WSGI deployment.
+
 Copy `.env.example` to `.env` before starting the development services.
 
 ```shell
