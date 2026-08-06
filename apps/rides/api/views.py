@@ -1,0 +1,1 @@
+"""Ride HTTP adapters."""
