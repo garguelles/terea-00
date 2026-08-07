@@ -121,6 +121,72 @@ system with this query pattern at larger scale should use an indexed geospatial
 type, such as PostGIS `geography`, or persist an appropriate derived location
 representation.
 
+## Bonus SQL Report
+
+The following PostgreSQL statement counts trips lasting strictly longer than one
+hour, grouped by the UTC month in which pickup occurred and by driver:
+
+```sql
+WITH first_pickups AS (
+    SELECT DISTINCT ON (event.id_ride)
+        event.id_ride,
+        event.created_at AS pickup_at
+    FROM rides_rideevent AS event
+    WHERE event.description = 'Status changed to pickup'
+    ORDER BY event.id_ride, event.created_at, event.id_ride_event
+),
+completed_trips AS (
+    SELECT
+        pickup.id_ride,
+        pickup.pickup_at,
+        dropoff.dropoff_at
+    FROM first_pickups AS pickup
+    CROSS JOIN LATERAL (
+        SELECT event.created_at AS dropoff_at
+        FROM rides_rideevent AS event
+        WHERE event.id_ride = pickup.id_ride
+          AND event.description = 'Status changed to dropoff'
+          AND event.created_at > pickup.pickup_at
+        ORDER BY event.created_at, event.id_ride_event
+        LIMIT 1
+    ) AS dropoff
+)
+SELECT
+    to_char(
+        date_trunc('month', trip.pickup_at AT TIME ZONE 'UTC'),
+        'YYYY-MM'
+    ) AS month,
+    concat_ws(' ', driver.first_name, left(driver.last_name, 1)) AS driver,
+    count(*) AS trips_over_one_hour
+FROM completed_trips AS trip
+JOIN rides_ride AS ride ON ride.id_ride = trip.id_ride
+JOIN users_user AS driver ON driver.id_user = ride.id_driver
+WHERE trip.dropoff_at - trip.pickup_at > INTERVAL '1 hour'
+GROUP BY
+    date_trunc('month', trip.pickup_at AT TIME ZONE 'UTC'),
+    driver.id_user,
+    driver.first_name,
+    driver.last_name
+ORDER BY
+    date_trunc('month', trip.pickup_at AT TIME ZONE 'UTC'),
+    driver.first_name,
+    driver.last_name,
+    driver.id_user;
+```
+
+A ride contributes at most once. When duplicate status events exist, the query
+chooses the earliest pickup, using the event ID to break timestamp ties, and
+pairs it with the earliest dropoff whose timestamp is strictly later. Dropoffs
+before or at pickup are therefore ignored, and a missing later dropoff excludes
+the ride. The strict interval comparison also excludes trips lasting exactly one
+hour.
+
+Django stores aware timestamps in PostgreSQL and this project uses UTC. Duration
+is calculated between the stored instants, while `AT TIME ZONE 'UTC'` makes the
+month boundary explicit. Driver ID is retained in the grouping and final ordering
+so different users with identical names are never combined; the displayed value
+matches the abbreviated names in the assessment's sample report.
+
 ## Railway
 
 Configure Railway to build the application with `Dockerfile.prod`. The image
