@@ -6,6 +6,40 @@ from rest_framework import serializers
 
 from apps.rides.models import Ride, RideEvent
 from apps.users.models import User
+from common.pagination import DefaultPagination
+
+
+class RideListQuerySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=Ride.Status.choices,
+        required=False,
+    )
+    rider_email = serializers.EmailField(required=False)
+    sort_by = serializers.ChoiceField(
+        choices=["pickup_time"],
+        required=False,
+    )
+    sort_order = serializers.ChoiceField(
+        choices=["asc", "desc"],
+        required=False,
+    )
+    page = serializers.IntegerField(min_value=1, required=False)
+    page_size = serializers.IntegerField(
+        min_value=1,
+        max_value=DefaultPagination.max_page_size,
+        required=False,
+    )
+
+    def validate_rider_email(self, value):
+        return value.lower()
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if ("sort_by" in attrs) != ("sort_order" in attrs):
+            raise serializers.ValidationError(
+                "sort_by and sort_order must be provided together."
+            )
+        return attrs
 
 
 class RideSerializer(serializers.ModelSerializer):

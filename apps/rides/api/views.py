@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from apps.rides import selectors
 from apps.rides.api.serializers import (
     RideEventSerializer,
+    RideListQuerySerializer,
     RideListSerializer,
     RideSerializer,
 )
@@ -18,14 +19,26 @@ class RideViewSet(viewsets.ModelViewSet):
     permission_classes = [IsActiveAdminRole]
 
     def get_queryset(self):
-        if self.action == "list":
-            return selectors.ride_list_queryset()
         return selectors.rides_queryset()
 
     def get_serializer_class(self):
         if self.action == "list":
             return RideListSerializer
         return RideSerializer
+
+    def list(self, request, *args, **kwargs):
+        query_serializer = RideListQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        params = query_serializer.validated_data
+        queryset = selectors.ride_list_queryset(
+            status=params.get("status"),
+            rider_email=params.get("rider_email"),
+            sort_by=params.get("sort_by"),
+            sort_order=params.get("sort_order"),
+        )
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

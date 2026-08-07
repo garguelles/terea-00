@@ -34,16 +34,18 @@ class RideListSelectorTests(TestCase):
             role=User.Role.DRIVER,
         )
 
-    def create_ride(self):
-        return Ride.objects.create(
-            rider=self.rider,
-            driver=self.driver,
-            pickup_latitude=37.7749,
-            pickup_longitude=-122.4194,
-            dropoff_latitude=37.6213,
-            dropoff_longitude=-122.3790,
-            pickup_time=timezone.now(),
-        )
+    def create_ride(self, **overrides):
+        data = {
+            "rider": self.rider,
+            "driver": self.driver,
+            "pickup_latitude": 37.7749,
+            "pickup_longitude": -122.4194,
+            "dropoff_latitude": 37.6213,
+            "dropoff_longitude": -122.3790,
+            "pickup_time": timezone.now(),
+        }
+        data.update(overrides)
+        return Ride.objects.create(**data)
 
     def create_event(self, *, ride, description, created_at):
         event = RideEvent.objects.create(ride=ride, description=description)
@@ -117,3 +119,53 @@ class RideListSelectorTests(TestCase):
             [event.pk for event in selected_ride.todays_ride_events],
             [second.pk, first.pk],
         )
+
+    def test_filters_by_status_and_rider_email_independently_and_together(self):
+        other_rider = User.objects.create_user(
+            email="other-rider@example.com",
+            password="test-password",
+            first_name="Other",
+            last_name="Rider",
+            phone_number="+15550000013",
+            role=User.Role.RIDER,
+        )
+        matching = self.create_ride(status=Ride.Status.PICKUP)
+        self.create_ride(status=Ride.Status.DROPOFF)
+        self.create_ride(rider=other_rider, status=Ride.Status.PICKUP)
+
+        self.assertEqual(
+            list(ride_list_queryset(status=Ride.Status.DROPOFF)),
+            list(Ride.objects.filter(status=Ride.Status.DROPOFF)),
+        )
+        self.assertEqual(
+            list(ride_list_queryset(rider_email=self.rider.email)),
+            list(Ride.objects.filter(rider=self.rider).order_by("id")),
+        )
+        self.assertEqual(
+            list(
+                ride_list_queryset(
+                    status=Ride.Status.PICKUP,
+                    rider_email=self.rider.email,
+                )
+            ),
+            [matching],
+        )
+        self.assertFalse(
+            ride_list_queryset(rider_email="missing@example.com").exists()
+        )
+
+    def test_pickup_time_sorting_uses_id_as_a_stable_tiebreaker(self):
+        now = timezone.now()
+        earlier = self.create_ride(pickup_time=now - timedelta(hours=1))
+        tied_first = self.create_ride(pickup_time=now)
+        tied_second = self.create_ride(pickup_time=now)
+
+        ascending = list(
+            ride_list_queryset(sort_by="pickup_time", sort_order="asc")
+        )
+        descending = list(
+            ride_list_queryset(sort_by="pickup_time", sort_order="desc")
+        )
+
+        self.assertEqual(ascending, [earlier, tied_first, tied_second])
+        self.assertEqual(descending, [tied_second, tied_first, earlier])

@@ -49,16 +49,18 @@ class RideApiTests(TestCase):
         data.update(overrides)
         return data
 
-    def create_ride(self):
-        return Ride.objects.create(
-            rider=self.rider,
-            driver=self.driver,
-            pickup_latitude=10.5,
-            pickup_longitude=20.5,
-            dropoff_latitude=30.5,
-            dropoff_longitude=40.5,
-            pickup_time=timezone.now(),
-        )
+    def create_ride(self, **overrides):
+        data = {
+            "rider": self.rider,
+            "driver": self.driver,
+            "pickup_latitude": 10.5,
+            "pickup_longitude": 20.5,
+            "dropoff_latitude": 30.5,
+            "dropoff_longitude": 40.5,
+            "pickup_time": timezone.now(),
+        }
+        data.update(overrides)
+        return Ride.objects.create(**data)
 
     def test_admin_can_create_retrieve_update_and_delete_a_ride(self):
         created = self.client.post(
@@ -191,6 +193,145 @@ class RideApiTests(TestCase):
                 for ride in response.json()["results"]
             )
         )
+
+    def test_ride_list_filters_by_status_and_rider_email(self):
+        other_rider = self.create_user("other-rider@example.com", User.Role.RIDER)
+        matching = self.create_ride(status=Ride.Status.PICKUP)
+        self.create_ride(status=Ride.Status.DROPOFF)
+        self.create_ride(rider=other_rider, status=Ride.Status.PICKUP)
+
+        response = self.client.get(
+            reverse("ride-list"),
+            {
+                "status": Ride.Status.PICKUP,
+                "rider_email": "RIDER@EXAMPLE.COM",
+            },
+        )
+        no_matches = self.client.get(
+            reverse("ride-list"),
+            {"rider_email": "missing@example.com"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id_ride"], matching.pk)
+        self.assertEqual(no_matches.status_code, 200)
+        self.assertEqual(no_matches.json()["count"], 0)
+        self.assertEqual(no_matches.json()["results"], [])
+
+    def test_pickup_time_sorting_is_stable_across_pages(self):
+        now = timezone.now()
+        earlier = self.create_ride(pickup_time=now - timedelta(hours=1))
+        tied_first = self.create_ride(pickup_time=now)
+        tied_second = self.create_ride(pickup_time=now)
+
+        ascending = self.client.get(
+            reverse("ride-list"),
+            {
+                "sort_by": "pickup_time",
+                "sort_order": "asc",
+                "page_size": 2,
+            },
+        )
+        descending_page_one = self.client.get(
+            reverse("ride-list"),
+            {
+                "sort_by": "pickup_time",
+                "sort_order": "desc",
+                "page_size": 2,
+            },
+        )
+        descending_page_two = self.client.get(
+            reverse("ride-list"),
+            {
+                "sort_by": "pickup_time",
+                "sort_order": "desc",
+                "page_size": 2,
+                "page": 2,
+            },
+        )
+
+        self.assertEqual(
+            [ride["id_ride"] for ride in ascending.json()["results"]],
+            [earlier.pk, tied_first.pk],
+        )
+        self.assertEqual(
+            [ride["id_ride"] for ride in descending_page_one.json()["results"]],
+            [tied_second.pk, tied_first.pk],
+        )
+        self.assertEqual(
+            [ride["id_ride"] for ride in descending_page_two.json()["results"]],
+            [earlier.pk],
+        )
+        self.assertEqual(descending_page_one.json()["count"], 3)
+        self.assertIsNotNone(descending_page_one.json()["next"])
+        self.assertIsNotNone(descending_page_two.json()["previous"])
+
+    def test_ride_list_allows_page_size_up_to_one_hundred(self):
+        Ride.objects.bulk_create(
+            [
+                Ride(
+                    rider=self.rider,
+                    driver=self.driver,
+                    pickup_latitude=10.5,
+                    pickup_longitude=20.5,
+                    dropoff_latitude=30.5,
+                    dropoff_longitude=40.5,
+                    pickup_time=timezone.now(),
+                )
+                for _ in range(101)
+            ]
+        )
+
+        response = self.client.get(reverse("ride-list"), {"page_size": 100})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 101)
+        self.assertEqual(len(response.json()["results"]), 100)
+        self.assertIsNotNone(response.json()["next"])
+
+    def test_ride_list_rejects_invalid_query_parameters(self):
+        cases = (
+            {"status": "unknown"},
+            {"rider_email": "not-an-email"},
+            {"sort_by": "id", "sort_order": "asc"},
+            {"sort_by": "pickup_time", "sort_order": "sideways"},
+            {"sort_by": "pickup_time"},
+            {"sort_order": "desc"},
+            {"page": 0},
+            {"page_size": 101},
+        )
+
+        for params in cases:
+            with self.subTest(params=params):
+                response = self.client.get(reverse("ride-list"), params)
+                self.assertEqual(response.status_code, 400)
+
+    def test_filtered_and_sorted_ride_page_still_uses_three_queries(self):
+        now = timezone.now()
+        for index in range(3):
+            ride = self.create_ride(
+                status=Ride.Status.PICKUP,
+                pickup_time=now + timedelta(minutes=index),
+            )
+            RideEvent.objects.create(ride=ride, description=f"Recent {index}")
+
+        with patch("apps.rides.selectors.timezone.now", return_value=now):
+            with self.assertNumQueries(3):
+                response = self.client.get(
+                    reverse("ride-list"),
+                    {
+                        "status": Ride.Status.PICKUP,
+                        "rider_email": self.rider.email,
+                        "sort_by": "pickup_time",
+                        "sort_order": "desc",
+                        "page_size": 2,
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 3)
+        self.assertEqual(len(response.json()["results"]), 2)
 
     def test_invalid_ride_and_event_inputs_return_bad_request(self):
         invalid_ride = self.client.post(
