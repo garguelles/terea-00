@@ -5,7 +5,11 @@ from rest_framework import status, viewsets
 from rest_framework.response import Response
 
 from apps.rides import selectors
-from apps.rides.api.serializers import RideEventSerializer, RideSerializer
+from apps.rides.api.serializers import (
+    RideEventSerializer,
+    RideListSerializer,
+    RideSerializer,
+)
 from apps.users.api.permissions import IsActiveAdminRole
 
 
@@ -14,7 +18,14 @@ class RideViewSet(viewsets.ModelViewSet):
     permission_classes = [IsActiveAdminRole]
 
     def get_queryset(self):
+        if self.action == "list":
+            return selectors.ride_list_queryset()
         return selectors.rides_queryset()
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return RideListSerializer
+        return RideSerializer
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

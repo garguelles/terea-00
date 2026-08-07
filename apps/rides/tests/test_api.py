@@ -1,3 +1,6 @@
+from datetime import timedelta
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -127,6 +130,67 @@ class RideApiTests(TestCase):
         ids = [item["id_ride"] for item in rides.json()["results"]]
         self.assertEqual(ids, sorted(ids))
         self.assertEqual(missing.status_code, 404)
+
+    def test_ride_list_returns_only_events_from_the_last_24_hours(self):
+        now = timezone.now()
+        ride = self.create_ride()
+        recent = RideEvent.objects.create(ride=ride, description="Recent")
+        old = RideEvent.objects.create(ride=ride, description="Old")
+        future = RideEvent.objects.create(ride=ride, description="Future")
+        RideEvent.objects.filter(pk=recent.pk).update(
+            created_at=now - timedelta(hours=24) + timedelta(seconds=1)
+        )
+        RideEvent.objects.filter(pk=old.pk).update(
+            created_at=now - timedelta(hours=24) - timedelta(seconds=1)
+        )
+        RideEvent.objects.filter(pk=future.pk).update(
+            created_at=now + timedelta(seconds=1)
+        )
+
+        with patch("apps.rides.selectors.timezone.now", return_value=now):
+            response = self.client.get(reverse("ride-list"))
+
+        self.assertEqual(response.status_code, 200)
+        listed_ride = response.json()["results"][0]
+        self.assertEqual(listed_ride["id_rider"], self.rider.pk)
+        self.assertEqual(listed_ride["id_driver"], self.driver.pk)
+        self.assertEqual(
+            [event["id_ride_event"] for event in listed_ride["todays_ride_events"]],
+            [recent.pk],
+        )
+
+    def test_paginated_ride_list_uses_three_queries(self):
+        now = timezone.now()
+        for index in range(4):
+            ride = self.create_ride()
+            recent = RideEvent.objects.create(
+                ride=ride,
+                description=f"Recent {index}",
+            )
+            old = RideEvent.objects.create(ride=ride, description=f"Old {index}")
+            RideEvent.objects.filter(pk=recent.pk).update(
+                created_at=now - timedelta(hours=1)
+            )
+            RideEvent.objects.filter(pk=old.pk).update(
+                created_at=now - timedelta(days=2)
+            )
+
+        with patch("apps.rides.selectors.timezone.now", return_value=now):
+            with self.assertNumQueries(3):
+                response = self.client.get(
+                    reverse("ride-list"),
+                    {"page_size": 2},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 4)
+        self.assertEqual(len(response.json()["results"]), 2)
+        self.assertTrue(
+            all(
+                len(ride["todays_ride_events"]) == 1
+                for ride in response.json()["results"]
+            )
+        )
 
     def test_invalid_ride_and_event_inputs_return_bad_request(self):
         invalid_ride = self.client.post(
