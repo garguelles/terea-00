@@ -35,6 +35,8 @@ class RideViewSet(viewsets.ModelViewSet):
             rider_email=params.get("rider_email"),
             sort_by=params.get("sort_by"),
             sort_order=params.get("sort_order"),
+            pickup_latitude=params.get("pickup_latitude"),
+            pickup_longitude=params.get("pickup_longitude"),
         )
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)

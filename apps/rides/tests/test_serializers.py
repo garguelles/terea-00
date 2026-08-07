@@ -60,6 +60,80 @@ class RideListQuerySerializerTests(TestCase):
                 self.assertFalse(serializer.is_valid())
                 self.assertIn("non_field_errors", serializer.errors)
 
+    def test_accepts_distance_sorting_with_valid_coordinates(self):
+        serializer = RideListQuerySerializer(
+            data={
+                "sort_by": "distance",
+                "sort_order": "asc",
+                "pickup_latitude": "-90",
+                "pickup_longitude": "180",
+            }
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["pickup_latitude"], -90.0)
+        self.assertEqual(serializer.validated_data["pickup_longitude"], 180.0)
+
+    def test_distance_sorting_requires_a_coordinate_pair(self):
+        cases = (
+            {
+                "sort_by": "distance",
+                "sort_order": "asc",
+            },
+            {
+                "sort_by": "distance",
+                "sort_order": "asc",
+                "pickup_latitude": 10,
+            },
+            {
+                "sort_by": "distance",
+                "sort_order": "asc",
+                "pickup_longitude": 20,
+            },
+        )
+
+        for data in cases:
+            with self.subTest(data=data):
+                serializer = RideListQuerySerializer(data=data)
+                self.assertFalse(serializer.is_valid())
+                self.assertIn("non_field_errors", serializer.errors)
+
+    def test_rejects_coordinates_without_distance_sorting(self):
+        for data in (
+            {"pickup_latitude": 10, "pickup_longitude": 20},
+            {
+                "sort_by": "pickup_time",
+                "sort_order": "asc",
+                "pickup_latitude": 10,
+                "pickup_longitude": 20,
+            },
+        ):
+            with self.subTest(data=data):
+                serializer = RideListQuerySerializer(data=data)
+                self.assertFalse(serializer.is_valid())
+                self.assertIn("non_field_errors", serializer.errors)
+
+    def test_rejects_invalid_distance_coordinates(self):
+        cases = {
+            "pickup_latitude": ("not-a-number", 0),
+            "latitude_range": (91, 0),
+            "longitude_range": (0, -181),
+            "latitude_non_finite": (math.nan, 0),
+            "longitude_non_finite": (0, math.inf),
+        }
+
+        for name, (latitude, longitude) in cases.items():
+            with self.subTest(name=name):
+                serializer = RideListQuerySerializer(
+                    data={
+                        "sort_by": "distance",
+                        "sort_order": "asc",
+                        "pickup_latitude": latitude,
+                        "pickup_longitude": longitude,
+                    }
+                )
+                self.assertFalse(serializer.is_valid())
+
 
 class RideSerializerTests(TestCase):
     @classmethod
