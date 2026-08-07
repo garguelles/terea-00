@@ -72,8 +72,31 @@ ID, while rides default to ascending ride ID order.
 The list query joins rider and driver with `select_related`. A filtered
 `Prefetch` stores recent events on a dedicated `todays_ride_events` attribute,
 so serialization cannot evaluate the full `ride_events` relationship. A page
-therefore uses two data queries, plus the pagination count query. Filtering and
-additional sorting options are not yet exposed.
+therefore uses two data queries, plus the pagination count query.
+
+The Ride List accepts these query parameters:
+
+- `status`: one of `en-route`, `pickup`, or `dropoff`.
+- `rider_email`: the rider's email address. Matching is case-insensitive because
+  email addresses are normalized before lookup.
+- `sort_by=pickup_time`: sorts by scheduled pickup time when accompanied by
+  `sort_order`.
+- `sort_order=asc` or `sort_order=desc`: controls pickup-time direction and must
+  be accompanied by `sort_by`.
+- `page`: a positive page number.
+- `page_size`: a value from 1 through 100; the default is 20.
+
+Filters can be combined, and filtering and sorting happen in PostgreSQL before
+pagination. Pickup-time sorting uses the ride ID in the same direction as a
+deterministic tie-breaker. Without sorting parameters, rides remain ordered by
+ascending ride ID. Invalid values and incomplete sorting pairs return `400 Bad
+Request`.
+
+For example:
+
+```text
+GET /api/v1/rides/?status=pickup&rider_email=rider@example.com&sort_by=pickup_time&sort_order=desc&page=1&page_size=20
+```
 
 ## Railway
 

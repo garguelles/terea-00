@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from apps.rides.api.serializers import (
     RideEventSerializer,
+    RideListQuerySerializer,
     RideListSerializer,
     RideSerializer,
 )
@@ -13,6 +14,51 @@ from apps.rides.models import Ride, RideEvent
 
 
 User = get_user_model()
+
+
+class RideListQuerySerializerTests(TestCase):
+    def test_accepts_and_normalizes_valid_query_parameters(self):
+        serializer = RideListQuerySerializer(
+            data={
+                "status": Ride.Status.PICKUP,
+                "rider_email": "RIDER@EXAMPLE.COM",
+                "sort_by": "pickup_time",
+                "sort_order": "desc",
+                "page": "2",
+                "page_size": "100",
+            }
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(
+            serializer.validated_data["rider_email"],
+            "rider@example.com",
+        )
+        self.assertEqual(serializer.validated_data["page"], 2)
+        self.assertEqual(serializer.validated_data["page_size"], 100)
+
+    def test_rejects_invalid_query_parameter_values(self):
+        cases = {
+            "status": {"status": "unknown"},
+            "rider_email": {"rider_email": "not-an-email"},
+            "sort_by": {"sort_by": "id", "sort_order": "asc"},
+            "sort_order": {"sort_by": "pickup_time", "sort_order": "sideways"},
+            "page": {"page": "0"},
+            "page_size": {"page_size": "101"},
+        }
+
+        for field, data in cases.items():
+            with self.subTest(field=field):
+                serializer = RideListQuerySerializer(data=data)
+                self.assertFalse(serializer.is_valid())
+                self.assertIn(field, serializer.errors)
+
+    def test_requires_sort_field_and_direction_together(self):
+        for data in ({"sort_by": "pickup_time"}, {"sort_order": "desc"}):
+            with self.subTest(data=data):
+                serializer = RideListQuerySerializer(data=data)
+                self.assertFalse(serializer.is_valid())
+                self.assertIn("non_field_errors", serializer.errors)
 
 
 class RideSerializerTests(TestCase):
