@@ -81,22 +81,45 @@ The Ride List accepts these query parameters:
   email addresses are normalized before lookup.
 - `sort_by=pickup_time`: sorts by scheduled pickup time when accompanied by
   `sort_order`.
-- `sort_order=asc` or `sort_order=desc`: controls pickup-time direction and must
-  be accompanied by `sort_by`.
+- `sort_by=distance`: sorts by great-circle distance from the supplied pickup
+  coordinates.
+- `sort_order=asc` or `sort_order=desc`: controls the selected sort direction
+  and must be accompanied by `sort_by`.
+- `pickup_latitude`: the reference latitude for distance sorting, from `-90` to
+  `90`.
+- `pickup_longitude`: the reference longitude for distance sorting, from `-180`
+  to `180`.
 - `page`: a positive page number.
 - `page_size`: a value from 1 through 100; the default is 20.
 
 Filters can be combined, and filtering and sorting happen in PostgreSQL before
-pagination. Pickup-time sorting uses the ride ID in the same direction as a
-deterministic tie-breaker. Without sorting parameters, rides remain ordered by
-ascending ride ID. Invalid values and incomplete sorting pairs return `400 Bad
-Request`.
+pagination. Both sorting modes use the ride ID in the same direction as a
+deterministic tie-breaker. Distance sorting requires both finite pickup
+coordinates; coordinates are rejected for other sorting modes rather than being
+silently ignored. Without sorting parameters, rides remain ordered by ascending
+ride ID. Invalid values and incomplete parameter pairs return `400 Bad Request`.
 
 For example:
 
 ```text
 GET /api/v1/rides/?status=pickup&rider_email=rider@example.com&sort_by=pickup_time&sort_order=desc&page=1&page_size=20
 ```
+
+Nearest pickup locations can be requested with:
+
+```text
+GET /api/v1/rides/?sort_by=distance&sort_order=asc&pickup_latitude=37.7749&pickup_longitude=-122.4194&page=1&page_size=20
+```
+
+Distance is calculated in kilometers with a clamped great-circle expression in
+the Ride List selector. PostgreSQL calculates and orders the value before
+pagination, so the application never loads all rides for Python-side sorting.
+The assessment fixes the Ride schema and does not permit storing trip distance;
+without spatial columns and a spatial index, PostgreSQL must still calculate the
+distance for every ride remaining after the requested filters. A production
+system with this query pattern at larger scale should use an indexed geospatial
+type, such as PostGIS `geography`, or persist an appropriate derived location
+representation.
 
 ## Railway
 

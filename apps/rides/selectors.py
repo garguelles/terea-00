@@ -2,7 +2,8 @@
 
 from datetime import timedelta
 
-from django.db.models import Prefetch
+from django.db.models import F, FloatField, Prefetch, Value
+from django.db.models.functions import ACos, Cos, Greatest, Least, Radians, Sin
 from django.utils import timezone
 
 from apps.rides.models import Ride, RideEvent
@@ -18,6 +19,8 @@ def ride_list_queryset(
     rider_email=None,
     sort_by=None,
     sort_order=None,
+    pickup_latitude=None,
+    pickup_longitude=None,
 ):
     now = timezone.now()
     recent_events = RideEvent.objects.filter(
@@ -44,6 +47,32 @@ def ride_list_queryset(
     if sort_by == "pickup_time":
         prefix = "-" if sort_order == "desc" else ""
         return queryset.order_by(f"{prefix}pickup_time", f"{prefix}id")
+
+    if sort_by == "distance":
+        reference_latitude = Radians(
+            Value(pickup_latitude, output_field=FloatField())
+        )
+        latitude = Radians(F("pickup_latitude"))
+        longitude_delta = Radians(
+            F("pickup_longitude")
+            - Value(pickup_longitude, output_field=FloatField())
+        )
+        cosine = (
+            Sin(reference_latitude) * Sin(latitude)
+            + Cos(reference_latitude) * Cos(latitude) * Cos(longitude_delta)
+        )
+        clamped_cosine = Least(
+            Greatest(cosine, Value(-1.0)),
+            Value(1.0),
+        )
+        queryset = queryset.annotate(
+            pickup_distance_km=Value(6371.0088) * ACos(clamped_cosine)
+        )
+        prefix = "-" if sort_order == "desc" else ""
+        return queryset.order_by(
+            f"{prefix}pickup_distance_km",
+            f"{prefix}id",
+        )
 
     return queryset.order_by("id")
 

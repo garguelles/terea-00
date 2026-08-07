@@ -169,3 +169,110 @@ class RideListSelectorTests(TestCase):
 
         self.assertEqual(ascending, [earlier, tied_first, tied_second])
         self.assertEqual(descending, [tied_second, tied_first, earlier])
+
+    def test_distance_sorting_is_calculated_by_postgresql(self):
+        nearest = self.create_ride(
+            pickup_latitude=0,
+            pickup_longitude=0,
+        )
+        middle = self.create_ride(
+            pickup_latitude=0,
+            pickup_longitude=1,
+        )
+        farthest = self.create_ride(
+            pickup_latitude=0,
+            pickup_longitude=2,
+        )
+
+        queryset = ride_list_queryset(
+            sort_by="distance",
+            sort_order="asc",
+            pickup_latitude=0,
+            pickup_longitude=0,
+        )
+        rides = list(queryset)
+        sql = str(queryset.query).upper()
+
+        self.assertEqual(rides, [nearest, middle, farthest])
+        self.assertAlmostEqual(rides[0].pickup_distance_km, 0, places=5)
+        self.assertAlmostEqual(rides[1].pickup_distance_km, 111.195, places=3)
+        self.assertIn("ACOS", sql)
+        self.assertIn("ORDER BY", sql)
+
+    def test_distance_sorting_supports_descending_and_stable_ties(self):
+        tied_first = self.create_ride(
+            pickup_latitude=0,
+            pickup_longitude=1,
+        )
+        tied_second = self.create_ride(
+            pickup_latitude=0,
+            pickup_longitude=-1,
+        )
+        nearest = self.create_ride(
+            pickup_latitude=0,
+            pickup_longitude=0,
+        )
+
+        ascending = list(
+            ride_list_queryset(
+                sort_by="distance",
+                sort_order="asc",
+                pickup_latitude=0,
+                pickup_longitude=0,
+            )
+        )
+        descending = list(
+            ride_list_queryset(
+                sort_by="distance",
+                sort_order="desc",
+                pickup_latitude=0,
+                pickup_longitude=0,
+            )
+        )
+
+        self.assertEqual(ascending, [nearest, tied_first, tied_second])
+        self.assertEqual(descending, [tied_second, tied_first, nearest])
+
+    def test_distance_sorting_combines_with_existing_filters(self):
+        other_rider = User.objects.create_user(
+            email="distance-rider@example.com",
+            password="test-password",
+            first_name="Distance",
+            last_name="Rider",
+            phone_number="+15550000014",
+            role=User.Role.RIDER,
+        )
+        farthest_match = self.create_ride(
+            status=Ride.Status.PICKUP,
+            pickup_latitude=0,
+            pickup_longitude=2,
+        )
+        nearest_match = self.create_ride(
+            status=Ride.Status.PICKUP,
+            pickup_latitude=0,
+            pickup_longitude=1,
+        )
+        self.create_ride(
+            status=Ride.Status.DROPOFF,
+            pickup_latitude=0,
+            pickup_longitude=0,
+        )
+        self.create_ride(
+            rider=other_rider,
+            status=Ride.Status.PICKUP,
+            pickup_latitude=0,
+            pickup_longitude=0,
+        )
+
+        rides = list(
+            ride_list_queryset(
+                status=Ride.Status.PICKUP,
+                rider_email=self.rider.email,
+                sort_by="distance",
+                sort_order="asc",
+                pickup_latitude=0,
+                pickup_longitude=0,
+            )
+        )
+
+        self.assertEqual(rides, [nearest_match, farthest_match])

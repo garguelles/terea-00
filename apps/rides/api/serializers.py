@@ -16,7 +16,7 @@ class RideListQuerySerializer(serializers.Serializer):
     )
     rider_email = serializers.EmailField(required=False)
     sort_by = serializers.ChoiceField(
-        choices=["pickup_time"],
+        choices=["pickup_time", "distance"],
         required=False,
     )
     sort_order = serializers.ChoiceField(
@@ -29,15 +29,52 @@ class RideListQuerySerializer(serializers.Serializer):
         max_value=DefaultPagination.max_page_size,
         required=False,
     )
+    pickup_latitude = serializers.FloatField(
+        min_value=-90,
+        max_value=90,
+        required=False,
+    )
+    pickup_longitude = serializers.FloatField(
+        min_value=-180,
+        max_value=180,
+        required=False,
+    )
 
     def validate_rider_email(self, value):
         return value.lower()
+
+    def validate_pickup_latitude(self, value):
+        if not math.isfinite(value):
+            raise serializers.ValidationError("Coordinate must be finite.")
+        return value
+
+    def validate_pickup_longitude(self, value):
+        if not math.isfinite(value):
+            raise serializers.ValidationError("Coordinate must be finite.")
+        return value
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
         if ("sort_by" in attrs) != ("sort_order" in attrs):
             raise serializers.ValidationError(
                 "sort_by and sort_order must be provided together."
+            )
+
+        has_latitude = "pickup_latitude" in attrs
+        has_longitude = "pickup_longitude" in attrs
+        if has_latitude != has_longitude:
+            raise serializers.ValidationError(
+                "pickup_latitude and pickup_longitude must be provided together."
+            )
+
+        if attrs.get("sort_by") == "distance" and not has_latitude:
+            raise serializers.ValidationError(
+                "Distance sorting requires pickup_latitude and pickup_longitude."
+            )
+
+        if has_latitude and attrs.get("sort_by") != "distance":
+            raise serializers.ValidationError(
+                "Pickup coordinates may only be used with distance sorting."
             )
         return attrs
 
