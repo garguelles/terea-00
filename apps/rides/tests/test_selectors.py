@@ -98,6 +98,46 @@ class RideListSelectorTests(TestCase):
             self.assertEqual(selected_ride.driver, self.driver)
             list(selected_ride.todays_ride_events)
 
+    def test_query_count_is_constant_and_prefetch_sql_filters_old_events(self):
+        now = timezone.now()
+        rides = [self.create_ride() for _ in range(12)]
+        for index, ride in enumerate(rides):
+            self.create_event(
+                ride=ride,
+                description=f"Recent {index}",
+                created_at=now - timedelta(hours=1),
+            )
+            self.create_event(
+                ride=ride,
+                description=f"Old {index}",
+                created_at=now - timedelta(days=2),
+            )
+
+        with patch("apps.rides.selectors.timezone.now", return_value=now):
+            with CaptureQueriesContext(connection) as queries:
+                selected_rides = list(ride_list_queryset())
+
+        self.assertEqual(len(queries), 2)
+        self.assertEqual(len(selected_rides), len(rides))
+        self.assertTrue(
+            all(
+                [event.description for event in ride.todays_ride_events]
+                == [f"Recent {index}"]
+                for index, ride in enumerate(selected_rides)
+            )
+        )
+        self.assertTrue(
+            all(
+                "ride_events" not in ride._prefetched_objects_cache
+                for ride in selected_rides
+            )
+        )
+
+        event_query = queries[1]["sql"].upper()
+        self.assertIn('"RIDES_RIDEEVENT"."CREATED_AT" >=', event_query)
+        self.assertIn('"RIDES_RIDEEVENT"."CREATED_AT" <=', event_query)
+        self.assertIn('"RIDES_RIDEEVENT"."ID_RIDE" IN', event_query)
+
     def test_recent_events_use_id_as_a_deterministic_time_tiebreaker(self):
         now = timezone.now()
         ride = self.create_ride()

@@ -2,7 +2,9 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -194,6 +196,65 @@ class RideApiTests(TestCase):
             )
         )
 
+    def test_query_count_remains_constant_as_page_size_increases(self):
+        now = timezone.now()
+        for index in range(12):
+            ride = self.create_ride()
+            recent = RideEvent.objects.create(
+                ride=ride,
+                description=f"Recent {index}",
+            )
+            old = RideEvent.objects.create(
+                ride=ride,
+                description=f"Old {index}",
+            )
+            RideEvent.objects.filter(pk=recent.pk).update(
+                created_at=now - timedelta(hours=1)
+            )
+            RideEvent.objects.filter(pk=old.pk).update(
+                created_at=now - timedelta(days=2)
+            )
+
+        with patch("apps.rides.selectors.timezone.now", return_value=now):
+            with self.assertNumQueries(3):
+                single_ride = self.client.get(
+                    reverse("ride-list"),
+                    {"page_size": 1},
+                )
+            with self.assertNumQueries(3):
+                full_page = self.client.get(
+                    reverse("ride-list"),
+                    {"page_size": 12},
+                )
+
+        self.assertEqual(single_ride.status_code, 200)
+        self.assertEqual(len(single_ride.json()["results"]), 1)
+        self.assertEqual(full_page.status_code, 200)
+        self.assertEqual(len(full_page.json()["results"]), 12)
+        self.assertTrue(
+            all(
+                [event["description"] for event in ride["todays_ride_events"]]
+                == [f"Recent {index}"]
+                for index, ride in enumerate(full_page.json()["results"])
+            )
+        )
+
+    def test_empty_ride_list_uses_at_most_three_queries(self):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("ride-list"))
+
+        self.assertLessEqual(len(queries), 3)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "count": 0,
+                "next": None,
+                "previous": None,
+                "results": [],
+            },
+        )
+
     def test_ride_list_filters_by_status_and_rider_email(self):
         other_rider = self.create_user("other-rider@example.com", User.Role.RIDER)
         matching = self.create_ride(status=Ride.Status.PICKUP)
@@ -299,7 +360,9 @@ class RideApiTests(TestCase):
             {"sort_by": "pickup_time"},
             {"sort_order": "desc"},
             {"page": 0},
+            {"page": "not-a-number"},
             {"page_size": 101},
+            {"page_size": "not-a-number"},
         )
 
         for params in cases:
@@ -467,6 +530,30 @@ class RideApiTests(TestCase):
         self.assertIn("status", invalid_ride.json())
         self.assertIn("id_driver", invalid_ride.json())
         self.assertEqual(invalid_event.status_code, 400)
+
+    def test_missing_related_inputs_and_event_return_controlled_errors(self):
+        ride_payload = self.ride_payload()
+        ride_payload.pop("id_rider")
+
+        invalid_ride = self.client.post(
+            reverse("ride-list"),
+            ride_payload,
+            format="json",
+        )
+        invalid_event = self.client.post(
+            reverse("ride-event-list"),
+            {"description": "Missing ride"},
+            format="json",
+        )
+        missing_event = self.client.get(
+            reverse("ride-event-detail", args=[999999])
+        )
+
+        self.assertEqual(invalid_ride.status_code, 400)
+        self.assertIn("id_rider", invalid_ride.json())
+        self.assertEqual(invalid_event.status_code, 400)
+        self.assertIn("id_ride", invalid_event.json())
+        self.assertEqual(missing_event.status_code, 404)
 
     def test_ride_assignments_require_matching_user_roles(self):
         response = self.client.post(
