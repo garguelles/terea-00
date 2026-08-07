@@ -61,9 +61,19 @@ the `page` and `page_size` query parameters to navigate results; `page_size` is
 limited to 100. Deleting a user assigned to a ride or a ride with existing
 events returns `409 Conflict` rather than deleting historical records.
 
-The specialized Ride List representation, including filtered recent events and
-related-user data, is documented with its implementation in the subsequent API
-work.
+### Ride List
+
+`GET /api/v1/rides/` returns each ride with its `id_rider`, `id_driver`, and a
+`todays_ride_events` collection. The collection contains only events whose
+`created_at` value is between the current time minus 24 hours and the current
+time, inclusive. Events are ordered by newest timestamp and then highest event
+ID, while rides default to ascending ride ID order.
+
+The list query joins rider and driver with `select_related`. A filtered
+`Prefetch` stores recent events on a dedicated `todays_ride_events` attribute,
+so serialization cannot evaluate the full `ride_events` relationship. A page
+therefore uses two data queries, plus the pagination count query. Filtering and
+additional sorting options are not yet exposed.
 
 ## Railway
 

@@ -4,8 +4,12 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.rides.api.serializers import RideEventSerializer, RideSerializer
-from apps.rides.models import Ride
+from apps.rides.api.serializers import (
+    RideEventSerializer,
+    RideListSerializer,
+    RideSerializer,
+)
+from apps.rides.models import Ride, RideEvent
 
 
 User = get_user_model()
@@ -88,6 +92,32 @@ class RideSerializerTests(TestCase):
                 )
                 self.assertFalse(serializer.is_valid())
                 self.assertIn("pickup_latitude", serializer.errors)
+
+    def test_ride_list_serializer_uses_prefetched_recent_events(self):
+        serializer = RideSerializer(data=self.ride_data())
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        ride = serializer.save()
+        event = RideEvent.objects.create(ride=ride, description="Recent")
+        ride.todays_ride_events = [event]
+
+        with self.assertNumQueries(0):
+            data = RideListSerializer(ride).data
+
+        self.assertEqual(data["id_rider"], self.rider.pk)
+        self.assertEqual(data["id_driver"], self.driver.pk)
+        self.assertEqual(
+            data["todays_ride_events"],
+            [
+                {
+                    "id_ride_event": event.pk,
+                    "id_ride": ride.pk,
+                    "description": "Recent",
+                    "created_at": event.created_at.isoformat().replace(
+                        "+00:00", "Z"
+                    ),
+                }
+            ],
+        )
 
     def test_ride_event_serializer_controls_timestamp(self):
         ride_serializer = RideSerializer(data=self.ride_data())

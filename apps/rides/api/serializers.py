@@ -71,3 +71,41 @@ class RideEventSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["created_at"]
+
+
+class RideListEventSerializer(serializers.ModelSerializer):
+    id_ride_event = serializers.IntegerField(source="id", read_only=True)
+    id_ride = serializers.IntegerField(source="ride_id", read_only=True)
+
+    class Meta:
+        model = RideEvent
+        fields = [
+            "id_ride_event",
+            "id_ride",
+            "description",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class RideListSerializer(serializers.ModelSerializer):
+    id_ride = serializers.IntegerField(source="id", read_only=True)
+    id_rider = serializers.IntegerField(source="rider_id", read_only=True)
+    id_driver = serializers.IntegerField(source="driver_id", read_only=True)
+    todays_ride_events = RideListEventSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Ride
+        fields = [
+            "id_ride",
+            "status",
+            "id_rider",
+            "id_driver",
+            "pickup_latitude",
+            "pickup_longitude",
+            "dropoff_latitude",
+            "dropoff_longitude",
+            "pickup_time",
+            "todays_ride_events",
+        ]
+        read_only_fields = fields
